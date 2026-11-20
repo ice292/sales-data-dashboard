@@ -1,0 +1,735 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>รายงานข้อมูลการขาย</title>
+<meta name="description" content="รายงานวิเคราะห์ข้อมูลการขาย 10,000 คำสั่งซื้อ ปี 2024–2025 หลังคัดข้อมูลขยะออก" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700&family=Sarabun:wght@400;500;600&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
+<style>
+  :root {
+    --surface: #fcfcfb; --page: #f4f4f1; --ink: #0b0b0b; --ink2: #52514e; --muted: #898781;
+    --grid: #e1e0d9; --axis: #c3c2b7; --track: #eeede8; --ring: rgba(11,11,11,0.10);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --surface: #1a1a19; --page: #0d0d0d; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
+      --grid: #2c2c2a; --axis: #383835; --track: #262624; --ring: rgba(255,255,255,0.10);
+    }
+  }
+  :root[data-theme="dark"] {
+    --surface: #1a1a19; --page: #0d0d0d; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --track: #262624; --ring: rgba(255,255,255,0.10);
+  }
+  html, body { margin: 0; background: var(--page); color: var(--ink); }
+  body { font-family: 'Sarabun', system-ui, sans-serif; overflow-x: hidden; }
+  .num { font-variant-numeric: tabular-nums; }
+  #loading { display: flex; align-items: center; justify-content: center; height: 100vh; font-family: 'Prompt', sans-serif; color: var(--muted); }
+  @media print { .no-print { display: none !important; } }
+</style>
+</head>
+<body>
+<div id="root"><div id="loading">กำลังโหลดรายงาน…</div></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@mui/material@5.15.15/umd/material-ui.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js" crossorigin></script>
+<script src="data/summary.js"></script>
+
+<script type="text/babel" data-presets="react">
+const {
+  ThemeProvider, createTheme, CssBaseline, AppBar, Toolbar, Typography, Container, Grid, Card, CardContent,
+  Box, Chip, ToggleButton, ToggleButtonGroup, Tooltip, Table, TableHead, TableBody, TableRow, TableCell,
+  TableContainer, Button, Alert, Stack, Divider, Icon, useMediaQuery, Switch, FormControlLabel, Link,
+} = MaterialUI;
+const { useState, useMemo, useRef, useEffect } = React;
+
+const D = window.SALES_DATA;
+const Q = D.quality;
+
+/* ---------- palette (validated reference palette, light/dark steps) ---------- */
+const PAL = {
+  light: ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#6250d6', '#e34948'],
+  dark:  ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#0ca30c', '#9085e9', '#e66767'],
+};
+const INK_ON = (hex) => (hex === '#eda100' || hex === '#c98500') ? '#0b0b0b' : '#ffffff';
+// colour follows the entity, never its rank
+const ENTITY_SLOT = {
+  'แอปมือถือ': 0, 'เว็บไซต์': 1, 'หน้าร้าน': 2, 'โซเชียลมีเดีย': 3,
+  'พร้อมเพย์': 0, 'บัตรเครดิต': 1, 'เก็บเงินปลายทาง': 2, 'โอนผ่านธนาคาร': 3, 'เงินสด': 4,
+  'สำเร็จ': 0, 'ยกเลิก': 1, 'คืนสินค้า': 2,
+  'หญิง': 0, 'ชาย': 1, 'ไม่ระบุ': 2,
+};
+
+/* ---------- formatting ---------- */
+const nf = new Intl.NumberFormat('th-TH');
+const nf2 = new Intl.NumberFormat('th-TH', { maximumFractionDigits: 2 });
+const fmtN = (v) => nf.format(Math.round(v));
+const fmtB = (v) => '฿' + nf.format(Math.round(v));
+const fmtCompactB = (v) => v >= 1e6 ? '฿' + nf2.format(v / 1e6) + ' ล้าน' : v >= 1e3 ? '฿' + nf2.format(v / 1e3) + 'K' : '฿' + fmtN(v);
+const pct = (a, b) => (b ? (a / b) * 100 : 0);
+const fmtPct = (v, d = 1) => v.toFixed(d) + '%';
+const TH_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+const niceMax = (v) => { if (v <= 0) return 1; const p = Math.pow(10, Math.floor(Math.log10(v))); const n = v / p; return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * p; };
+
+/* ---------- building blocks ---------- */
+function Section({ id, icon, title, subtitle, children }) {
+  return (
+    <Box component="section" id={id} sx={{ mt: 5, scrollMarginTop: 80 }}>
+      <Stack direction="row" spacing={1.25} alignItems="center" sx={{ mb: 0.5 }}>
+        <Icon sx={{ color: 'primary.main' }}>{icon}</Icon>
+        <Typography variant="h5" component="h2">{title}</Typography>
+      </Stack>
+      {subtitle && <Typography sx={{ color: 'text.secondary', mb: 2 }}>{subtitle}</Typography>}
+      {children}
+    </Box>
+  );
+}
+
+function ChartCard({ title, note, table, children, minH }) {
+  const [showTable, setShowTable] = useState(false);
+  return (
+    <Card variant="outlined" sx={{ height: '100%', borderRadius: 3 }}>
+      <CardContent sx={{ p: { xs: 2, sm: 2.5 } }}>
+        <Stack direction="row" alignItems="flex-start" justifyContent="space-between" spacing={1} sx={{ mb: 1.5 }}>
+          <Box>
+            <Typography variant="subtitle1" component="h3" sx={{ fontWeight: 600, lineHeight: 1.35 }}>{title}</Typography>
+            {note && <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.25 }}>{note}</Typography>}
+          </Box>
+          {table && (
+            <Tooltip title={showTable ? 'แสดงกราฟ' : 'แสดงเป็นตาราง'}>
+              <Button size="small" className="no-print" onClick={() => setShowTable(!showTable)}
+                startIcon={<Icon fontSize="small">{showTable ? 'bar_chart' : 'table_rows'}</Icon>}
+                sx={{ flexShrink: 0, color: 'text.secondary' }}>
+                {showTable ? 'กราฟ' : 'ตาราง'}
+              </Button>
+            </Tooltip>
+          )}
+        </Stack>
+        <Box sx={{ minHeight: minH }}>
+          {showTable && table ? <DataTable {...table} /> : children}
+        </Box>
+      </CardContent>
+    </Card>
+  );
+}
+
+function DataTable({ columns, rows }) {
+  return (
+    <TableContainer sx={{ maxHeight: 360 }}>
+      <Table size="small" stickyHeader>
+        <TableHead>
+          <TableRow>{columns.map((c) => <TableCell key={c.key} align={c.num ? 'right' : 'left'} sx={{ fontWeight: 600 }}>{c.label}</TableCell>)}</TableRow>
+        </TableHead>
+        <TableBody>
+          {rows.map((r, i) => (
+            <TableRow key={i} hover>
+              {columns.map((c) => <TableCell key={c.key} align={c.num ? 'right' : 'left'} className={c.num ? 'num' : ''}>{c.fmt ? c.fmt(r[c.key], r) : r[c.key]}</TableCell>)}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </TableContainer>
+  );
+}
+
+/* Horizontal bars: label | bar (value at tip). Whole row is the hover target. */
+function HBars({ items, valueKey, fmt, color, tip, labelW = 150, highlight }) {
+  const max = niceMax(Math.max(...items.map((d) => d[valueKey])));
+  return (
+    <Box role="list">
+      {items.map((d) => {
+        const ratio = Math.max(d[valueKey] / max, 0.006);
+        return (
+          <Tooltip key={d.name} title={tip ? tip(d) : `${d.name}: ${fmt(d[valueKey])}`} placement="top" arrow followCursor>
+            <Box role="listitem" sx={{ display: 'flex', alignItems: 'center', gap: 1.25, py: '5px', borderRadius: 1, '&:hover': { bgcolor: 'action.hover' } }}>
+              <Typography variant="body2" sx={{ width: { xs: Math.min(labelW, 112), sm: labelW }, flexShrink: 0, color: 'text.secondary', textAlign: 'right', lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {d.name}
+              </Typography>
+              <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+                <Box sx={{ height: 18, width: `calc((100% - 84px) * ${ratio})`, bgcolor: color, opacity: highlight && !highlight(d) ? 0.45 : 1, borderRadius: '0 4px 4px 0', flexShrink: 0, transition: 'width .4s' }} />
+                <Typography variant="body2" className="num" sx={{ whiteSpace: 'nowrap', color: 'text.primary', fontWeight: 500 }}>{fmt(d[valueKey])}</Typography>
+              </Box>
+            </Box>
+          </Tooltip>
+        );
+      })}
+    </Box>
+  );
+}
+
+/* Vertical columns with a hairline baseline and clean y ticks. */
+function Columns({ items, valueKey, fmt, color, height = 180, tip, labelEvery = 1, peakLabel = true }) {
+  const vals = items.map((d) => d[valueKey]);
+  const max = niceMax(Math.max(...vals));
+  const peak = Math.max(...vals);
+  const ticks = [0, max / 2, max];
+  return (
+    <Box sx={{ display: 'flex', gap: 1 }}>
+      <Box sx={{ position: 'relative', width: 40, height, flexShrink: 0 }}>
+        {ticks.map((t) => (
+          <Typography key={t} variant="caption" className="num" sx={{ position: 'absolute', right: 0, bottom: `calc(${(t / max) * 100}% - 8px)`, color: 'var(--muted)' }}>
+            {t >= 1000 ? nf2.format(t / 1000) + 'K' : fmtN(t)}
+          </Typography>
+        ))}
+      </Box>
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Box sx={{ position: 'relative', height, display: 'flex', alignItems: 'flex-end', gap: '2px', borderBottom: '1px solid var(--axis)' }}>
+          {ticks.slice(1).map((t) => (
+            <Box key={t} sx={{ position: 'absolute', left: 0, right: 0, bottom: `${(t / max) * 100}%`, borderTop: '1px solid var(--grid)' }} />
+          ))}
+          {items.map((d) => {
+            const h = (d[valueKey] / max) * 100;
+            const isPeak = peakLabel && d[valueKey] === peak;
+            return (
+              <Tooltip key={d.name} title={tip ? tip(d) : `${d.name}: ${fmt(d[valueKey])}`} placement="top" arrow>
+                <Box sx={{ flex: 1, height: '100%', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', position: 'relative', cursor: 'default', '&:hover > .bar': { filter: 'brightness(1.12)' } }}>
+                  {isPeak && (
+                    <Typography variant="caption" className="num" sx={{ position: 'absolute', bottom: `calc(${h}% + 2px)`, fontWeight: 600, color: 'text.primary', whiteSpace: 'nowrap' }}>{fmt(d[valueKey])}</Typography>
+                  )}
+                  <Box className="bar" sx={{ width: '100%', maxWidth: 24, height: `${h}%`, bgcolor: color, borderRadius: '4px 4px 0 0', transition: 'height .4s' }} />
+                </Box>
+              </Tooltip>
+            );
+          })}
+        </Box>
+        <Box sx={{ display: 'flex', gap: '2px', mt: 0.5 }}>
+          {items.map((d, i) => (
+            <Typography key={d.name} variant="caption" sx={{ flex: 1, textAlign: 'center', color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'visible', visibility: i % labelEvery === 0 ? 'visible' : 'hidden' }}>{d.name}</Typography>
+          ))}
+        </Box>
+      </Box>
+    </Box>
+  );
+}
+
+/* Tall segmented bar: one whole split into parts; legend lists names in block order. */
+function SegBar({ items, valueKey, pal, fmtV = fmtN }) {
+  const total = items.reduce((s, d) => s + d[valueKey], 0);
+  return (
+    <Box>
+      <Box sx={{ display: 'flex', gap: '2px', height: 28 }} role="img" aria-label={items.map((d) => `${d.name} ${fmtPct(pct(d[valueKey], total))}`).join(', ')}>
+        {items.map((d) => {
+          const share = pct(d[valueKey], total);
+          const c = pal[ENTITY_SLOT[d.name] ?? 7];
+          return (
+            <Tooltip key={d.name} title={`${d.name}: ${fmtV(d[valueKey])} (${fmtPct(share)})`} arrow placement="top">
+              <Box sx={{ width: `${share}%`, bgcolor: c, borderRadius: '4px', display: 'flex', alignItems: 'center', pl: 1, overflow: 'hidden', minWidth: 2 }}>
+                {share >= 9 && <Typography variant="caption" className="num" sx={{ color: INK_ON(c), fontWeight: 600, whiteSpace: 'nowrap' }}>{Math.round(share)}%</Typography>}
+              </Box>
+            </Tooltip>
+          );
+        })}
+      </Box>
+      <Stack direction="row" flexWrap="wrap" sx={{ mt: 1.5, columnGap: 2, rowGap: 0.75 }}>
+        {items.map((d) => (
+          <Stack key={d.name} direction="row" spacing={0.75} alignItems="center">
+            <Box sx={{ width: 10, height: 10, borderRadius: '3px', bgcolor: pal[ENTITY_SLOT[d.name] ?? 7] }} />
+            <Typography variant="body2" sx={{ color: 'text.secondary' }}>{d.name}{pct(d[valueKey], total) < 9 ? ` ${fmtPct(pct(d[valueKey], total))}` : ''}</Typography>
+          </Stack>
+        ))}
+      </Stack>
+    </Box>
+  );
+}
+
+/* Line chart with crosshair + tooltip. series: [{name, color, values[12]}] */
+function LineChart({ series, height = 260 }) {
+  const ref = useRef(null);
+  const [w, setW] = useState(640);
+  const [hover, setHover] = useState(null);
+  useEffect(() => {
+    const el = ref.current; if (!el) return;
+    const ro = new ResizeObserver(([e]) => setW(Math.max(280, e.contentRect.width)));
+    ro.observe(el); return () => ro.disconnect();
+  }, []);
+  const pad = { l: 52, r: 64, t: 16, b: 28 };
+  const iw = w - pad.l - pad.r, ih = height - pad.t - pad.b;
+  const all = series.flatMap((s) => s.values.filter((v) => v != null));
+  const max = niceMax(Math.max(...all));
+  const x = (i) => pad.l + (i / 11) * iw;
+  const y = (v) => pad.t + ih - (v / max) * ih;
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => f * max);
+  const onMove = (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const px = ((e.clientX - r.left) / r.width) * w;
+    setHover(Math.max(0, Math.min(11, Math.round(((px - pad.l) / iw) * 11))));
+  };
+  return (
+    <Box ref={ref} sx={{ position: 'relative', width: '100%' }}>
+      <svg width="100%" height={height} viewBox={`0 0 ${w} ${height}`} onMouseMove={onMove} onMouseLeave={() => setHover(null)} style={{ display: 'block', touchAction: 'pan-y' }}
+        onTouchMove={(e) => onMove(e.touches[0] ? { currentTarget: e.currentTarget, clientX: e.touches[0].clientX } : e)}>
+        {ticks.map((t) => (
+          <g key={t}>
+            <line x1={pad.l} x2={w - pad.r} y1={y(t)} y2={y(t)} stroke={t === 0 ? 'var(--axis)' : 'var(--grid)'} strokeWidth="1" />
+            <text x={pad.l - 8} y={y(t) + 4} textAnchor="end" fontSize="11" fill="var(--muted)" className="num">{t === 0 ? '0' : (t / 1e3).toFixed(0) + 'K'}</text>
+          </g>
+        ))}
+        {TH_MONTHS.map((m, i) => (w > 480 || i % 2 === 0) && (
+          <text key={m} x={x(i)} y={height - 8} textAnchor="middle" fontSize="11" fill="var(--muted)">{m}</text>
+        ))}
+        {hover != null && <line x1={x(hover)} x2={x(hover)} y1={pad.t} y2={pad.t + ih} stroke="var(--axis)" strokeWidth="1" />}
+        {series.map((s) => {
+          const pts = s.values.map((v, i) => (v == null ? null : [x(i), y(v)])).filter(Boolean);
+          const d = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+          const area = d + ` L${pts[pts.length - 1][0]} ${pad.t + ih} L${pts[0][0]} ${pad.t + ih} Z`;
+          const last = pts[pts.length - 1];
+          return (
+            <g key={s.name}>
+              {series.length === 1 && <path d={area} fill={s.color} opacity="0.1" />}
+              <path d={d} fill="none" stroke={s.color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+              <circle cx={last[0]} cy={last[1]} r="4" fill={s.color} stroke="var(--surface)" strokeWidth="2" />
+              {series.length <= 2 && <text x={last[0] + 9} y={last[1] + 4} fontSize="12" fill="var(--ink2)" fontWeight="600">{s.name}</text>}
+              {hover != null && s.values[hover] != null && (
+                <circle cx={x(hover)} cy={y(s.values[hover])} r="5" fill={s.color} stroke="var(--surface)" strokeWidth="2" />
+              )}
+            </g>
+          );
+        })}
+      </svg>
+      {hover != null && (
+        <Box sx={{ position: 'absolute', top: 8, left: `${(x(hover) / w) * 100}%`, transform: x(hover) > w * 0.6 ? 'translateX(calc(-100% - 12px))' : 'translateX(12px)', bgcolor: 'background.paper', border: '1px solid var(--ring)', borderRadius: 2, boxShadow: 3, px: 1.5, py: 1, pointerEvents: 'none', minWidth: 150 }}>
+          <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>{TH_MONTHS[hover]}</Typography>
+          {series.map((s) => s.values[hover] != null && (
+            <Stack key={s.name} direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+              <Stack direction="row" spacing={0.75} alignItems="center">
+                <Box sx={{ width: 12, height: 2, bgcolor: s.color, borderRadius: 1 }} />
+                <Typography variant="body2" sx={{ color: 'text.secondary' }}>{s.name}</Typography>
+              </Stack>
+              <Typography variant="body2" className="num" sx={{ fontWeight: 600 }}>{fmtB(s.values[hover])}</Typography>
+            </Stack>
+          ))}
+        </Box>
+      )}
+      {series.length > 1 && (
+        <Stack direction="row" spacing={2} sx={{ mt: 1, pl: `${pad.l}px` }}>
+          {series.map((s) => (
+            <Stack key={s.name} direction="row" spacing={0.75} alignItems="center">
+              <Box sx={{ width: 16, height: 2, bgcolor: s.color, borderRadius: 1 }} />
+              <Typography variant="body2" sx={{ color: 'text.secondary' }}>ปี {s.name}</Typography>
+            </Stack>
+          ))}
+        </Stack>
+      )}
+    </Box>
+  );
+}
+
+function StatTile({ label, value, sub, icon, hero }) {
+  return (
+    <Card variant="outlined" sx={{ height: '100%', borderRadius: 3 }}>
+      <CardContent sx={{ p: { xs: 2, sm: 2.5 } }}>
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ color: 'text.secondary', mb: 0.75 }}>
+          <Icon fontSize="small">{icon}</Icon>
+          <Typography variant="body2">{label}</Typography>
+        </Stack>
+        <Typography sx={{ fontFamily: 'Prompt', fontWeight: 600, fontSize: hero ? { xs: 36, sm: 48 } : { xs: 22, sm: 26 }, lineHeight: 1.15 }}>{value}</Typography>
+        {sub && <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.5 }}>{sub}</Typography>}
+      </CardContent>
+    </Card>
+  );
+}
+
+/* ---------- data-quality section ---------- */
+function QualitySection({ pal }) {
+  const c = Q.checks;
+  const checks = [
+    { label: 'รหัสคำสั่งซื้อซ้ำ', n: c.dupId },
+    { label: 'แถวซ้ำกันทุกช่อง (ยกเว้นรหัส)', n: c.dupRow },
+    { label: 'ยอดก่อนค่าส่ง ≠ ราคา × จำนวน − ส่วนลด', n: c.mathSub },
+    { label: 'ยอดสุทธิ ≠ ยอดก่อนค่าส่ง + ค่าส่ง', n: c.mathTotal },
+    { label: 'วันที่/เวลาผิดรูปแบบ', n: c.badDateTime },
+    { label: 'จังหวัดอยู่ผิดภาค', n: c.provRegion },
+    { label: 'สินค้าอยู่หลายหมวด', n: c.prodCat },
+    { label: 'ลูกค้าคนเดิมแต่เพศ/อายุ/จังหวัดไม่ตรงกัน', n: c.custAttr },
+    { label: 'ซื้อหน้าร้านแต่มีค่าส่ง/วันจัดส่ง', n: c.storeShip },
+    { label: 'ซื้อออนไลน์แต่จ่าย "เงินสด"', n: c.cashOnline },
+    { label: 'คำสั่งซื้อที่ยกเลิกแต่มีรีวิว', n: c.cancelReview },
+    { label: 'ซื้อหน้าร้านแต่จ่าย "เก็บเงินปลายทาง"', n: c.codStore, junk: true },
+  ];
+  const sampleCols = [
+    { key: 'id', label: 'รหัสคำสั่งซื้อ' }, { key: 'date', label: 'วันที่' }, { key: 'product', label: 'สินค้า' },
+    { key: 'channel', label: 'ช่องทาง' }, { key: 'pay', label: 'วิธีชำระ' },
+    { key: 'ship', label: 'ค่าส่ง', num: true, fmt: fmtN }, { key: 'days', label: 'วันจัดส่ง', num: true },
+    { key: 'total', label: 'ยอดสุทธิ', num: true, fmt: fmtB }, { key: 'status', label: 'สถานะ' },
+  ];
+  return (
+    <Section id="quality" icon="cleaning_services" title="การคัดกรองข้อมูล (Data Cleaning)"
+      subtitle="ตรวจไฟล์ sales_data.csv ทุกแถวด้วยกฎ 12 ข้อ ก่อนนำมาวิเคราะห์">
+      <Grid container spacing={2}>
+        <Grid item xs={12} md={5}>
+          <Card variant="outlined" sx={{ height: '100%', borderRadius: 3 }}>
+            <CardContent sx={{ p: { xs: 2, sm: 2.5 } }}>
+              <Typography variant="subtitle1" component="h3" sx={{ fontWeight: 600, mb: 2 }}>ผลการคัดกรอง</Typography>
+              <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 2 }}>
+                <Box sx={{ textAlign: 'center' }}>
+                  <Typography sx={{ fontFamily: 'Prompt', fontSize: 30, fontWeight: 600 }} className="num">{fmtN(Q.rawRows)}</Typography>
+                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>แถวดิบ</Typography>
+                </Box>
+                <Icon sx={{ color: 'text.secondary' }}>arrow_forward</Icon>
+                <Box sx={{ textAlign: 'center' }}>
+                  <Typography sx={{ fontFamily: 'Prompt', fontSize: 30, fontWeight: 600, color: 'primary.main' }} className="num">{fmtN(Q.cleanRows)}</Typography>
+                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>แถวที่ใช้ได้</Typography>
+                </Box>
+              </Stack>
+              <Box sx={{ display: 'flex', gap: '2px', height: 8, mb: 1 }}>
+                <Box sx={{ width: `${pct(Q.cleanRows, Q.rawRows)}%`, bgcolor: pal[0], borderRadius: 8 }} />
+                <Box sx={{ width: `${pct(Q.removedRows, Q.rawRows)}%`, bgcolor: '#d03b3b', borderRadius: 8 }} />
+              </Box>
+              <Typography variant="body2" sx={{ color: 'text.secondary', mb: 2 }}>
+                ตัดออก <b className="num">{fmtN(Q.removedRows)}</b> แถว ({fmtPct(pct(Q.removedRows, Q.rawRows))}) · {Q.columns} คอลัมน์ · ช่วงข้อมูล {D.range[0]} ถึง {D.range[1]}
+              </Typography>
+              <Alert severity="error" icon={<Icon>delete_sweep</Icon>} sx={{ mb: 1.5 }}>
+                <b>ข้อมูลขยะที่ตัดออก {fmtN(Q.removedRows)} แถว:</b> ช่องทางเป็น “หน้าร้าน” (ค่าส่ง 0 บาท, ส่งของ 0 วัน) แต่บันทึกวิธีชำระเป็น “เก็บเงินปลายทาง”
+                ซึ่งขัดกันเอง เป็นไปไม่ได้ จึงเชื่อถือไม่ได้ทั้งแถว คิดเป็น {fmtPct(pct(Q.removedRows, Q.storeOrdersRaw))} ของรายการหน้าร้านทั้งหมด
+              </Alert>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap className="no-print">
+                <Button size="small" variant="outlined" href="data/sales_clean.csv" download startIcon={<Icon>download</Icon>}>ข้อมูลที่คัดแล้ว (.csv)</Button>
+                <Button size="small" variant="outlined" color="error" href="data/removed_rows.csv" download startIcon={<Icon>download</Icon>}>แถวที่ตัดออก (.csv)</Button>
+              </Stack>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={12} md={7}>
+          <Card variant="outlined" sx={{ height: '100%', borderRadius: 3 }}>
+            <CardContent sx={{ p: { xs: 2, sm: 2.5 } }}>
+              <Typography variant="subtitle1" component="h3" sx={{ fontWeight: 600, mb: 1 }}>รายการตรวจสอบ</Typography>
+              <Table size="small">
+                <TableBody>
+                  {checks.map((k) => {
+                    const ok = k.n === 0;
+                    return (
+                      <TableRow key={k.label}>
+                        <TableCell sx={{ pl: 0, width: 32 }}>
+                          <Icon fontSize="small" sx={{ color: ok ? 'success.main' : 'error.main', verticalAlign: 'middle' }}>{ok ? 'check_circle' : 'error'}</Icon>
+                        </TableCell>
+                        <TableCell>{k.label}</TableCell>
+                        <TableCell align="right" sx={{ pr: 0, whiteSpace: 'nowrap' }}>
+                          {ok ? <Typography variant="body2" sx={{ color: 'text.secondary' }}>ผ่าน · 0 แถว</Typography>
+                              : <Chip size="small" color="error" label={`พบ ${fmtN(k.n)} แถว → ตัดออก`} />}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={12}>
+          <Card variant="outlined" sx={{ borderRadius: 3 }}>
+            <CardContent sx={{ p: { xs: 2, sm: 2.5 } }}>
+              <Typography variant="subtitle1" component="h3" sx={{ fontWeight: 600, mb: 1.5 }}>ข้อมูลที่ “ไม่สมบูรณ์” แต่ไม่ได้ลบ (จัดการแบบนี้แทน)</Typography>
+              <Grid container spacing={2}>
+                {[
+                  { icon: 'person_off', title: 'อายุ 15 ปีผิดปกติ', text: `มีลูกค้าอายุ 15 ปี ${Q.age15} คน แต่อายุ 16 และ 17 ปีมีแค่ ${Q.age16} คน แสดงว่าอายุที่ต่ำกว่า 15 ถูกปัดเป็น 15 รายงานนี้จึงแสดงกลุ่มนี้เป็น “≤15 ปี”` },
+                  { icon: 'help_outline', title: 'เพศ “ไม่ระบุ”', text: `${fmtN(Q.genderUnknownOrders)} คำสั่งซื้อ (${Q.genderUnknownCustomers} คน) ไม่ระบุเพศ แยกเป็นอีกกลุ่ม ไม่เดาแทน` },
+                  { icon: 'star_border', title: 'คะแนนรีวิวว่าง', text: `${fmtN(Q.blankReview)} รายการไม่มีรีวิว (ในนี้ ${fmtN(Q.blankReviewCancelled)} รายการถูกยกเลิก) จึงไม่นำมาเฉลี่ย ไม่นับเป็น 0 คะแนน` },
+                  { icon: 'money_off', title: 'ยกเลิก / คืนสินค้า', text: 'ยอดขายทุกตัวเลขในรายงานนับเฉพาะคำสั่งซื้อสถานะ “สำเร็จ” เพราะรายการที่ยกเลิกหรือคืนสินค้าไม่มีรายได้จริง' },
+                  { icon: 'priority_high', title: `ลูกค้า ${Q.topCustomer} ซื้อมากผิดปกติ`, text: `${Q.topCustomerOrders} คำสั่งซื้อ มากกว่าอันดับ 2 (${Q.secondCustomerOrders}) ถึง ${(Q.topCustomerOrders / Q.secondCustomerOrders).toFixed(1)} เท่า แต่ข้อมูลสอดคล้องกันทุกช่อง จึงเก็บไว้และทำเครื่องหมายเตือนในตารางลูกค้า` },
+                ].map((n) => (
+                  <Grid item xs={12} sm={6} md key={n.title}>
+                    <Stack direction="row" spacing={1.25}>
+                      <Icon sx={{ color: 'warning.main', mt: '2px' }}>{n.icon}</Icon>
+                      <Box>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>{n.title}</Typography>
+                        <Typography variant="body2" sx={{ color: 'text.secondary' }}>{n.text}</Typography>
+                      </Box>
+                    </Stack>
+                  </Grid>
+                ))}
+              </Grid>
+              <Divider sx={{ my: 2 }} />
+              <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>ตัวอย่างแถวที่ถูกตัดออก (10 จาก {fmtN(Q.removedRows)})</Typography>
+              <DataTable columns={sampleCols} rows={Q.removedSample} />
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
+    </Section>
+  );
+}
+
+/* ---------- app ---------- */
+function App() {
+  const prefersDark = useMediaQuery('(prefers-color-scheme: dark)');
+  const [year, setYear] = useState('all');
+  const mode = prefersDark ? 'dark' : 'light';
+  const pal = PAL[mode];
+  const theme = useMemo(() => createTheme({
+    palette: {
+      mode,
+      primary: { main: pal[0] },
+      background: { default: mode === 'dark' ? '#0d0d0d' : '#f4f4f1', paper: mode === 'dark' ? '#1a1a19' : '#fcfcfb' },
+      text: mode === 'dark' ? { primary: '#f0efec', secondary: '#c3c2b7' } : { primary: '#0b0b0b', secondary: '#52514e' },
+      divider: mode === 'dark' ? '#2c2c2a' : '#e1e0d9',
+    },
+    shape: { borderRadius: 10 },
+    typography: {
+      fontFamily: "'Sarabun', system-ui, sans-serif",
+      h4: { fontFamily: "'Prompt', sans-serif", fontWeight: 600 },
+      h5: { fontFamily: "'Prompt', sans-serif", fontWeight: 600 },
+      subtitle1: { fontFamily: "'Prompt', sans-serif" },
+      button: { fontFamily: "'Prompt', sans-serif", textTransform: 'none' },
+    },
+    components: { MuiCard: { styleOverrides: { root: { borderColor: 'var(--ring)' } } } },
+  }), [mode]);
+
+  const Y = D.byYear[year];
+  const K = Y.kpi;
+  const yearLabel = year === 'all' ? '2024–2025' : year;
+
+  const lineSeries = useMemo(() => {
+    const toArr = (key) => { const a = Array(12).fill(null); D.byYear[key].monthly.forEach((m) => { a[+m.m.slice(5) - 1] = m.revenue; }); return a; };
+    if (year === 'all') return [{ name: '2024', color: pal[0], values: toArr('2024') }, { name: '2025', color: pal[1], values: toArr('2025') }];
+    return [{ name: year, color: year === '2024' ? pal[0] : pal[1], values: toArr(year) }];
+  }, [year, mode]);
+
+  const bestMonth = [...Y.monthly].sort((a, b) => b.revenue - a.revenue)[0];
+  const peakHour = [...Y.hour].sort((a, b) => b.orders - a.orders)[0];
+  const growth = pct(D.byYear['2025'].kpi.revenue - D.byYear['2024'].kpi.revenue, D.byYear['2024'].kpi.revenue);
+  const weekend = Y.weekday.slice(5).reduce((s, d) => s + d.orders, 0) / 2;
+  const weekdayAvg = Y.weekday.slice(0, 5).reduce((s, d) => s + d.orders, 0) / 5;
+  const monthName = (m) => `${TH_MONTHS[+m.slice(5) - 1]} ${m.slice(0, 4)}`;
+
+  const insights = [
+    { icon: 'trending_up', text: <>ยอดขายปี 2025 โต <b>{fmtPct(growth)}</b> จากปี 2024 ({fmtCompactB(D.byYear['2024'].kpi.revenue)} → {fmtCompactB(D.byYear['2025'].kpi.revenue)})</> },
+    { icon: 'event', text: <>เดือนที่ขายดีที่สุดคือ <b>{monthName(bestMonth.m)}</b> ({fmtB(bestMonth.revenue)}) ยอดขายพุ่งช่วงโปรฯ 11.11 และ 12.12</> },
+    { icon: 'devices', text: <><b>{Y.category[0].name}</b> ทำรายได้สูงสุด {fmtPct(pct(Y.category[0].revenue, K.revenue))} ของยอดขาย ช่องทางหลักคือ <b>{[...Y.channel].sort((a, b) => b.revenue - a.revenue)[0].name}</b></> },
+    { icon: 'schedule', text: <>ลูกค้าสั่งมากที่สุดช่วง <b>{peakHour.name}:00 น.</b> และวันเสาร์–อาทิตย์สั่งมากกว่าวันธรรมดาเฉลี่ย {fmtPct(pct(weekend - weekdayAvg, weekdayAvg), 0)}</> },
+    { icon: 'local_shipping', text: <>จัดส่งเร็วสุดใน<b>ภาคกลาง</b> (เฉลี่ย {Y.delivery[0].avg} วัน) ช้าสุดคือ<b>{[...Y.delivery].sort((a, b) => b.avg - a.avg)[0].name}</b> ({[...Y.delivery].sort((a, b) => b.avg - a.avg)[0].avg} วัน)</> },
+  ];
+
+  const revCols = (label) => [
+    { key: 'name', label }, { key: 'orders', label: 'คำสั่งซื้อ', num: true, fmt: fmtN },
+    { key: 'units', label: 'ชิ้น', num: true, fmt: fmtN }, { key: 'revenue', label: 'ยอดขาย', num: true, fmt: fmtB },
+  ];
+  const revTip = (d) => `${d.name}: ${fmtB(d.revenue)} · ${fmtN(d.orders)} คำสั่งซื้อ`;
+
+  return (
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <AppBar position="sticky" elevation={0} color="inherit" sx={{ borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
+        <Toolbar sx={{ gap: 1.5, flexWrap: 'wrap', py: { xs: 1, sm: 0 } }}>
+          <Icon sx={{ color: 'primary.main' }}>insights</Icon>
+          <Typography sx={{ fontFamily: 'Prompt', fontWeight: 600, flexGrow: 1, fontSize: { xs: 16, sm: 19 } }}>รายงานข้อมูลการขาย</Typography>
+          <ToggleButtonGroup size="small" exclusive value={year} onChange={(e, v) => v && setYear(v)} aria-label="เลือกปี" className="no-print">
+            <ToggleButton value="all" sx={{ px: 1.5 }}>ทั้งหมด</ToggleButton>
+            <ToggleButton value="2024" sx={{ px: 1.5 }}>2024</ToggleButton>
+            <ToggleButton value="2025" sx={{ px: 1.5 }}>2025</ToggleButton>
+          </ToggleButtonGroup>
+        </Toolbar>
+      </AppBar>
+
+      <Container maxWidth="lg" sx={{ py: { xs: 3, sm: 4 }, px: { xs: 2, sm: 3 } }}>
+        <Typography variant="h4" component="h1" sx={{ fontSize: { xs: 26, sm: 34 } }}>ข้อมูลการขายปลีกหลายช่องทาง ปี {yearLabel}</Typography>
+        <Typography sx={{ color: 'text.secondary', mt: 1, maxWidth: 820 }}>
+          วิเคราะห์จากไฟล์ <b>sales_data.csv</b> ({fmtN(Q.rawRows)} คำสั่งซื้อ · 7 หมวดสินค้า · 33 รายการ · 25 จังหวัด · 4 ช่องทางขาย)
+          หลังคัดข้อมูลขยะออกเหลือ <b>{fmtN(Q.cleanRows)}</b> คำสั่งซื้อ ตัวเลขยอดขายนับเฉพาะคำสั่งซื้อที่ “สำเร็จ”
+        </Typography>
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 2 }} className="no-print">
+          {[['quality', 'การคัดกรองข้อมูล'], ['overview', 'ภาพรวม'], ['products', 'สินค้า'], ['channels', 'ช่องทาง & พื้นที่'], ['customers', 'ลูกค้า'], ['time', 'ช่วงเวลา'], ['service', 'ความพึงพอใจ']].map(([id, l]) => (
+            <Chip key={id} label={l} component="a" href={`#${id}`} clickable variant="outlined" size="small" />
+          ))}
+        </Stack>
+
+        <QualitySection pal={pal} />
+
+        <Section id="overview" icon="dashboard" title={`ภาพรวม ปี ${yearLabel}`}>
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={4}>
+              <StatTile hero icon="payments" label="ยอดขายสุทธิ (สำเร็จ)" value={fmtCompactB(K.revenue)} sub={`${fmtB(K.revenue)} · รวมค่าส่ง ${fmtB(K.shipping)}`} />
+            </Grid>
+            <Grid item xs={12} md={8}>
+              <Grid container spacing={2}>
+                <Grid item xs={6} sm={4}><StatTile icon="receipt_long" label="คำสั่งซื้อสำเร็จ" value={fmtN(K.success)} sub={`จาก ${fmtN(K.orders)} รายการ`} /></Grid>
+                <Grid item xs={6} sm={4}><StatTile icon="shopping_basket" label="ยอดเฉลี่ยต่อบิล" value={fmtB(K.aov)} /></Grid>
+                <Grid item xs={6} sm={4}><StatTile icon="group" label="ลูกค้า" value={fmtN(K.customers)} sub="คน (ไม่ซ้ำ)" /></Grid>
+                <Grid item xs={6} sm={4}><StatTile icon="inventory_2" label="สินค้าที่ขายได้" value={fmtN(K.units)} sub="ชิ้น" /></Grid>
+                <Grid item xs={6} sm={4}><StatTile icon="star" label="คะแนนรีวิวเฉลี่ย" value={`${K.rating.toFixed(2)} / 5`} sub={`จาก ${fmtN(K.ratedCount)} รีวิว`} /></Grid>
+                <Grid item xs={6} sm={4}><StatTile icon="undo" label="ยกเลิก / คืนสินค้า" value={`${fmtPct(pct(K.cancelled, K.orders))} / ${fmtPct(pct(K.returned, K.orders))}`} sub={`${fmtN(K.cancelled)} / ${fmtN(K.returned)} รายการ`} /></Grid>
+              </Grid>
+            </Grid>
+            <Grid item xs={12}>
+              <ChartCard title="ยอดขายรายเดือน (บาท)" note={year === 'all' ? 'เทียบปี 2024 กับ 2025 · ชี้เมาส์เพื่อดูตัวเลข' : `ปี ${year} · ชี้เมาส์เพื่อดูตัวเลข`}
+                table={{ columns: [{ key: 'm', label: 'เดือน', fmt: monthName }, { key: 'revenue', label: 'ยอดขาย', num: true, fmt: fmtB }], rows: Y.monthly }}>
+                <LineChart series={lineSeries} />
+              </ChartCard>
+            </Grid>
+            <Grid item xs={12}>
+              <Card variant="outlined" sx={{ borderRadius: 3 }}>
+                <CardContent sx={{ p: { xs: 2, sm: 2.5 } }}>
+                  <Typography variant="subtitle1" component="h3" sx={{ fontWeight: 600, mb: 1.5 }}>ข้อค้นพบสำคัญ</Typography>
+                  <Grid container spacing={1.5}>
+                    {insights.map((n, i) => (
+                      <Grid item xs={12} sm={6} key={i}>
+                        <Stack direction="row" spacing={1.25} alignItems="flex-start">
+                          <Icon sx={{ color: 'primary.main', mt: '1px' }}>{n.icon}</Icon>
+                          <Typography variant="body2">{n.text}</Typography>
+                        </Stack>
+                      </Grid>
+                    ))}
+                  </Grid>
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
+        </Section>
+
+        <Section id="products" icon="category" title="สินค้า">
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={6}>
+              <ChartCard title="ยอดขายตามหมวดสินค้า" table={{ columns: revCols('หมวด'), rows: Y.category }}>
+                <HBars items={Y.category} valueKey="revenue" fmt={fmtCompactB} color={pal[0]} tip={revTip} labelW={150} />
+              </ChartCard>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <ChartCard title="สินค้าขายดี 10 อันดับ (ตามยอดขาย)" table={{ columns: revCols('สินค้า'), rows: Y.product }}>
+                <HBars items={Y.product} valueKey="revenue" fmt={fmtCompactB} color={pal[0]} tip={(d) => `${revTip(d)} · ${fmtN(d.units)} ชิ้น`} labelW={170} />
+              </ChartCard>
+            </Grid>
+            <Grid item xs={12}>
+              <ChartCard title="จำนวนคำสั่งซื้อตามส่วนลดที่ได้รับ" note={`ให้ส่วนลดไปทั้งหมด ${fmtB(K.discountGiven)} · ${fmtPct(pct(K.success - Y.discount[0].orders, K.success))} ของบิลได้ส่วนลด`}
+                table={{ columns: [{ key: 'name', label: 'ส่วนลด' }, { key: 'orders', label: 'คำสั่งซื้อ', num: true, fmt: fmtN }], rows: Y.discount }}>
+                <Columns items={Y.discount} valueKey="orders" fmt={fmtN} color={pal[0]} height={150} tip={(d) => `ส่วนลด ${d.name}: ${fmtN(d.orders)} คำสั่งซื้อ`} />
+              </ChartCard>
+            </Grid>
+          </Grid>
+        </Section>
+
+        <Section id="channels" icon="storefront" title="ช่องทางการขาย & พื้นที่">
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={6}>
+              <ChartCard title="สัดส่วนยอดขายตามช่องทาง" table={{ columns: revCols('ช่องทาง'), rows: Y.channel }}>
+                <SegBar items={Y.channel} valueKey="revenue" pal={pal} fmtV={fmtB} />
+                <Divider sx={{ my: 2 }} />
+                <Typography variant="subtitle2" sx={{ mb: 1, color: 'text.secondary' }}>วิธีชำระเงิน (จำนวนคำสั่งซื้อ)</Typography>
+                <SegBar items={Y.payment} valueKey="orders" pal={pal} />
+                <Typography variant="body2" sx={{ color: 'text.secondary', mt: 1.5 }}>
+                  * “เงินสด” มีเฉพาะที่หน้าร้าน ส่วน “เก็บเงินปลายทาง” มีเฉพาะออนไลน์ (หลังตัดข้อมูลขยะแล้ว)
+                </Typography>
+              </ChartCard>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <ChartCard title="ยอดขายตามภาค" table={{ columns: revCols('ภาค'), rows: Y.region }}>
+                <HBars items={Y.region} valueKey="revenue" fmt={fmtCompactB} color={pal[0]} tip={revTip} labelW={160} />
+                <Divider sx={{ my: 2 }} />
+                <Typography variant="subtitle2" sx={{ mb: 1, color: 'text.secondary' }}>สถานะคำสั่งซื้อ</Typography>
+                <SegBar items={Y.status} valueKey="orders" pal={pal} />
+              </ChartCard>
+            </Grid>
+            <Grid item xs={12}>
+              <ChartCard title="10 จังหวัดยอดขายสูงสุด" table={{ columns: revCols('จังหวัด'), rows: Y.province }}>
+                <HBars items={Y.province} valueKey="revenue" fmt={fmtCompactB} color={pal[0]} tip={revTip} labelW={140} />
+              </ChartCard>
+            </Grid>
+          </Grid>
+        </Section>
+
+        <Section id="customers" icon="groups" title="ลูกค้า">
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={6}>
+              <ChartCard title="จำนวนลูกค้าตามช่วงอายุ" note="กลุ่ม ≤15 รวมลูกค้าที่อายุถูกปัดเป็น 15 ปี"
+                table={{ columns: [{ key: 'name', label: 'ช่วงอายุ' }, { key: 'customers', label: 'ลูกค้า (คน)', num: true, fmt: fmtN }], rows: Y.ageCustomers }}>
+                <Columns items={Y.ageCustomers} valueKey="customers" fmt={(v) => fmtN(v) + ' คน'} color={pal[0]} height={170} tip={(d) => `อายุ ${d.name}: ${fmtN(d.customers)} คน`} />
+              </ChartCard>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <ChartCard title="ยอดขายตามเพศ" table={{ columns: revCols('เพศ'), rows: Y.gender }}>
+                <SegBar items={Y.gender} valueKey="revenue" pal={pal} fmtV={fmtB} />
+                <Divider sx={{ my: 2 }} />
+                <Typography variant="subtitle2" sx={{ mb: 1, color: 'text.secondary' }}>ยอดขายตามช่วงอายุ</Typography>
+                <HBars items={Y.ageRevenue} valueKey="revenue" fmt={fmtCompactB} color={pal[0]} tip={revTip} labelW={70} />
+              </ChartCard>
+            </Grid>
+            <Grid item xs={12}>
+              <ChartCard title="ลูกค้า 10 อันดับแรก (ตามยอดซื้อ)">
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        {['#', 'รหัสลูกค้า', 'ข้อมูล', 'จังหวัด', 'คำสั่งซื้อ', 'ยอดซื้อรวม'].map((h, i) => <TableCell key={h} align={i >= 4 ? 'right' : 'left'} sx={{ fontWeight: 600 }}>{h}</TableCell>)}
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {Y.topCustomers.map((c, i) => (
+                        <TableRow key={c.id} hover>
+                          <TableCell className="num">{i + 1}</TableCell>
+                          <TableCell>
+                            <Stack direction="row" spacing={1} alignItems="center">
+                              <span>{c.id}</span>
+                              {c.id === Q.topCustomer && <Tooltip title="ซื้อมากกว่าลูกค้าคนอื่นหลายเท่า ควรตรวจสอบว่าเป็นบัญชีร้าน/พนักงานหรือไม่"><Chip size="small" color="warning" variant="outlined" icon={<Icon fontSize="small">priority_high</Icon>} label="ผิดปกติ" /></Tooltip>}
+                              {c.profile.includes('15 ปี') && <Tooltip title="อายุอาจถูกปัดเป็น 15 ปี"><Chip size="small" variant="outlined" label="≤15" /></Tooltip>}
+                            </Stack>
+                          </TableCell>
+                          <TableCell>{c.profile}</TableCell>
+                          <TableCell>{c.province}</TableCell>
+                          <TableCell align="right" className="num">{fmtN(c.orders)}</TableCell>
+                          <TableCell align="right" className="num">{fmtB(c.revenue)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </ChartCard>
+            </Grid>
+          </Grid>
+        </Section>
+
+        <Section id="time" icon="schedule" title="ช่วงเวลาที่สั่งซื้อ">
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={7}>
+              <ChartCard title="จำนวนคำสั่งซื้อตามชั่วโมง" note="ทุกสถานะ"
+                table={{ columns: [{ key: 'name', label: 'ชั่วโมง', fmt: (v) => v + ':00' }, { key: 'orders', label: 'คำสั่งซื้อ', num: true, fmt: fmtN }], rows: Y.hour }}>
+                <Columns items={Y.hour} valueKey="orders" fmt={fmtN} color={pal[0]} height={170} labelEvery={3} tip={(d) => `${d.name}:00–${d.name}:59 น.: ${fmtN(d.orders)} คำสั่งซื้อ`} />
+              </ChartCard>
+            </Grid>
+            <Grid item xs={12} md={5}>
+              <ChartCard title="จำนวนคำสั่งซื้อตามวันในสัปดาห์" note="ทุกสถานะ"
+                table={{ columns: [{ key: 'name', label: 'วัน' }, { key: 'orders', label: 'คำสั่งซื้อ', num: true, fmt: fmtN }], rows: Y.weekday }}>
+                <Columns items={Y.weekday} valueKey="orders" fmt={fmtN} color={pal[0]} height={170} tip={(d) => `วัน${d.name}: ${fmtN(d.orders)} คำสั่งซื้อ`} />
+              </ChartCard>
+            </Grid>
+          </Grid>
+        </Section>
+
+        <Section id="service" icon="sentiment_satisfied" title="ความพึงพอใจ & การจัดส่ง">
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={4}>
+              <ChartCard title="การกระจายคะแนนรีวิว" note={`ไม่นับ ${fmtN(K.orders - K.ratedCount)} รายการที่ไม่มีรีวิว`}
+                table={{ columns: [{ key: 'name', label: 'คะแนน' }, { key: 'orders', label: 'จำนวน', num: true, fmt: fmtN }], rows: Y.rating }}>
+                <HBars items={Y.rating} valueKey="orders" fmt={fmtN} color={pal[0]} labelW={60} />
+              </ChartCard>
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <ChartCard title="คะแนนเฉลี่ยตามหมวดสินค้า"
+                table={{ columns: [{ key: 'name', label: 'หมวด' }, { key: 'avg', label: 'เฉลี่ย', num: true }, { key: 'n', label: 'รีวิว', num: true, fmt: fmtN }], rows: Y.catRating }}>
+                <HBars items={Y.catRating} valueKey="avg" fmt={(v) => v.toFixed(2)} color={pal[0]} labelW={140} tip={(d) => `${d.name}: ${d.avg.toFixed(2)} ดาว จาก ${fmtN(d.n)} รีวิว`} />
+              </ChartCard>
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <ChartCard title="วันจัดส่งเฉลี่ยตามภาค" note="เฉพาะออนไลน์ ไม่รวมรายการยกเลิก"
+                table={{ columns: [{ key: 'name', label: 'ภาค' }, { key: 'avg', label: 'วันเฉลี่ย', num: true }, { key: 'n', label: 'รายการ', num: true, fmt: fmtN }], rows: Y.delivery }}>
+                <HBars items={Y.delivery} valueKey="avg" fmt={(v) => v.toFixed(1) + ' วัน'} color={pal[0]} labelW={140} tip={(d) => `${d.name}: เฉลี่ย ${d.avg} วัน (${fmtN(d.n)} รายการ)`} />
+              </ChartCard>
+            </Grid>
+          </Grid>
+        </Section>
+
+        <Divider sx={{ mt: 6, mb: 2 }} />
+        <Typography variant="body2" sx={{ color: 'text.secondary', pb: 2 }}>
+          ที่มาข้อมูล: ไฟล์ sales_data.csv ({fmtN(Q.rawRows)} แถว × {Q.columns} คอลัมน์) · คัดกรองและสรุปด้วย Python · แสดงผลด้วย React + Material UI
+        </Typography>
+      </Container>
+    </ThemeProvider>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
