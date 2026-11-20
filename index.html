@@ -39,13 +39,16 @@
 <script src="https://unpkg.com/@mui/material@5.15.15/umd/material-ui.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js" crossorigin></script>
 <script src="data/summary.js"></script>
+<script src="data/junk.js"></script>
 
 <script type="text/babel" data-presets="react">
 const {
   ThemeProvider, createTheme, CssBaseline, AppBar, Toolbar, Typography, Container, Grid, Card, CardContent,
   Box, Chip, ToggleButton, ToggleButtonGroup, Tooltip, Table, TableHead, TableBody, TableRow, TableCell,
   TableContainer, Button, Alert, Stack, Divider, Icon, useMediaQuery, Switch, FormControlLabel, Link,
+  Tabs, Tab, TablePagination, TextField, InputAdornment, Paper,
 } = MaterialUI;
+const J = window.JUNK_DATA;
 const { useState, useMemo, useRef, useEffect } = React;
 
 const D = window.SALES_DATA;
@@ -63,6 +66,7 @@ const ENTITY_SLOT = {
   'พร้อมเพย์': 0, 'บัตรเครดิต': 1, 'เก็บเงินปลายทาง': 2, 'โอนผ่านธนาคาร': 3, 'เงินสด': 4,
   'สำเร็จ': 0, 'ยกเลิก': 1, 'คืนสินค้า': 2,
   'หญิง': 0, 'ชาย': 1, 'ไม่ระบุ': 2,
+  'จ่ายเงินขัดแย้ง': 0, 'เพศไม่ระบุ': 1, 'อายุ 15 (ปัด)': 2, 'รีวิวว่าง': 3,
 };
 
 /* ---------- formatting ---------- */
@@ -163,7 +167,7 @@ function HBars({ items, valueKey, fmt, color, tip, labelW = 150, highlight }) {
 }
 
 /* Vertical columns with a hairline baseline and clean y ticks. */
-function Columns({ items, valueKey, fmt, color, height = 180, tip, labelEvery = 1, peakLabel = true }) {
+function Columns({ items, valueKey, fmt, color, colorOf, height = 180, tip, labelEvery = 1, peakLabel = true, refLine }) {
   const vals = items.map((d) => d[valueKey]);
   const max = niceMax(Math.max(...vals));
   const peak = Math.max(...vals);
@@ -182,6 +186,11 @@ function Columns({ items, valueKey, fmt, color, height = 180, tip, labelEvery = 
           {ticks.slice(1).map((t) => (
             <Box key={t} sx={{ position: 'absolute', left: 0, right: 0, bottom: `${(t / max) * 100}%`, borderTop: '1px solid var(--grid)' }} />
           ))}
+          {refLine && (
+            <Box sx={{ position: 'absolute', left: 0, right: 0, bottom: `${(refLine.value / max) * 100}%`, borderTop: '2px solid var(--ink2)', zIndex: 1, pointerEvents: 'none' }}>
+              <Typography variant="caption" sx={{ position: 'absolute', right: 0, bottom: 2, color: 'text.secondary', bgcolor: 'background.paper', px: 0.5 }}>{refLine.label}</Typography>
+            </Box>
+          )}
           {items.map((d) => {
             const h = (d[valueKey] / max) * 100;
             const isPeak = peakLabel && d[valueKey] === peak;
@@ -191,7 +200,7 @@ function Columns({ items, valueKey, fmt, color, height = 180, tip, labelEvery = 
                   {isPeak && (
                     <Typography variant="caption" className="num" sx={{ position: 'absolute', bottom: `calc(${h}% + 2px)`, fontWeight: 600, color: 'text.primary', whiteSpace: 'nowrap' }}>{fmt(d[valueKey])}</Typography>
                   )}
-                  <Box className="bar" sx={{ width: '100%', maxWidth: 24, height: `${h}%`, bgcolor: color, borderRadius: '4px 4px 0 0', transition: 'height .4s' }} />
+                  <Box className="bar" sx={{ width: '100%', maxWidth: 24, height: `${h}%`, bgcolor: colorOf ? colorOf(d) : color, borderRadius: '4px 4px 0 0', transition: 'height .4s' }} />
                 </Box>
               </Tooltip>
             );
@@ -427,8 +436,8 @@ function QualitySection({ pal }) {
               <Grid container spacing={2}>
                 {[
                   { icon: 'person_off', title: 'อายุ 15 ปีผิดปกติ', text: `มีลูกค้าอายุ 15 ปี ${Q.age15} คน แต่อายุ 16 และ 17 ปีมีแค่ ${Q.age16} คน แสดงว่าอายุที่ต่ำกว่า 15 ถูกปัดเป็น 15 รายงานนี้จึงแสดงกลุ่มนี้เป็น “≤15 ปี”` },
-                  { icon: 'help_outline', title: 'เพศ “ไม่ระบุ”', text: `${fmtN(Q.genderUnknownOrders)} คำสั่งซื้อ (${Q.genderUnknownCustomers} คน) ไม่ระบุเพศ แยกเป็นอีกกลุ่ม ไม่เดาแทน` },
-                  { icon: 'star_border', title: 'คะแนนรีวิวว่าง', text: `${fmtN(Q.blankReview)} รายการไม่มีรีวิว (ในนี้ ${fmtN(Q.blankReviewCancelled)} รายการถูกยกเลิก) จึงไม่นำมาเฉลี่ย ไม่นับเป็น 0 คะแนน` },
+                  { icon: 'help_outline', title: 'เพศ “ไม่ระบุ”', text: `หลังตัดแถวขยะเหลือ ${fmtN(Q.genderUnknownOrders)} คำสั่งซื้อ (${Q.genderUnknownCustomers} คน) ที่ไม่ระบุเพศ แยกเป็นอีกกลุ่ม ไม่เดาแทน` },
+                  { icon: 'star_border', title: 'คะแนนรีวิวว่าง', text: `หลังตัดแถวขยะเหลือ ${fmtN(Q.blankReview)} รายการที่ไม่มีรีวิว (ในนี้ ${fmtN(Q.blankReviewCancelled)} รายการถูกยกเลิก) จึงไม่นำมาเฉลี่ย ไม่นับเป็น 0 คะแนน` },
                   { icon: 'money_off', title: 'ยกเลิก / คืนสินค้า', text: 'ยอดขายทุกตัวเลขในรายงานนับเฉพาะคำสั่งซื้อสถานะ “สำเร็จ” เพราะรายการที่ยกเลิกหรือคืนสินค้าไม่มีรายได้จริง' },
                   { icon: 'priority_high', title: `ลูกค้า ${Q.topCustomer} ซื้อมากผิดปกติ`, text: `${Q.topCustomerOrders} คำสั่งซื้อ มากกว่าอันดับ 2 (${Q.secondCustomerOrders}) ถึง ${(Q.topCustomerOrders / Q.secondCustomerOrders).toFixed(1)} เท่า แต่ข้อมูลสอดคล้องกันทุกช่อง จึงเก็บไว้และทำเครื่องหมายเตือนในตารางลูกค้า` },
                 ].map((n) => (
@@ -448,6 +457,368 @@ function QualitySection({ pal }) {
               <DataTable columns={sampleCols} rows={Q.removedSample} />
             </CardContent>
           </Card>
+        </Grid>
+      </Grid>
+    </Section>
+  );
+}
+
+/* ---------- cell-level junk section ---------- */
+const TYPE_KEYS = ['P', 'G', 'A', 'R'];
+const TYPE_FIELD = { P: 'pay', G: 'gender', A: 'age', R: 'review' };
+const TYPE_SHORT = { P: 'จ่ายเงินขัดแย้ง', G: 'เพศไม่ระบุ', A: 'อายุ 15 (ปัด)', R: 'รีวิวว่าง' };
+const TYPE_ICON = { P: 'credit_card_off', G: 'help_outline', A: 'person_off', R: 'star_border' };
+
+function MiniStat({ label, value, sub }) {
+  return (
+    <Box sx={{ p: 1.5, borderRadius: 2, border: '1px solid var(--ring)', height: '100%' }}>
+      <Typography variant="body2" sx={{ color: 'text.secondary' }}>{label}</Typography>
+      <Typography sx={{ fontFamily: 'Prompt', fontWeight: 600, fontSize: 22, lineHeight: 1.2 }} className="num">{value}</Typography>
+      {sub && <Typography variant="caption" sx={{ color: 'text.secondary' }}>{sub}</Typography>}
+    </Box>
+  );
+}
+
+function SubHead({ children }) {
+  return <Typography variant="subtitle2" sx={{ fontWeight: 600, mt: 2.5, mb: 1 }}>{children}</Typography>;
+}
+
+function TypeDetail({ t, pal }) {
+  const T = J.types[t];
+  const color = pal[TYPE_KEYS.indexOf(t)];
+  const ctx = T.context;
+  const monthItems = J.months.map((m, i) => ({ name: `${TH_MONTHS[+m.slice(5) - 1]}${m.slice(2, 4)}`, full: `${TH_MONTHS[+m.slice(5) - 1]} ${m.slice(0, 4)}`, n: T.monthly[i] }));
+  const nCols = [{ key: 'name', label: 'กลุ่ม' }, { key: 'n', label: 'จำนวนช่อง', num: true, fmt: fmtN }];
+  const tipN = (d) => `${d.name}: ${fmtN(d.n)} ช่อง (${fmtPct(pct(d.n, T.cells))})`;
+
+  let why = null, extra = null;
+  if (t === 'P') {
+    why = <>ช่องทาง “หน้าร้าน” ทุกแถวในไฟล์มีค่าส่ง 0 บาทและวันจัดส่ง 0 วัน แปลว่าลูกค้ารับของที่ร้าน แต่มี {fmtN(T.cells)} แถวที่บันทึกวิธีชำระว่า “เก็บเงินปลายทาง” (จ่ายเงินตอนพนักงานส่งของถึงบ้าน) ซึ่งเกิดพร้อมกันไม่ได้ เราไม่รู้ว่าช่องไหนผิด ช่องทางหรือวิธีชำระ จึงเชื่อถือทั้งแถวไม่ได้ และตัดทั้งแถวออก</>;
+    extra = (
+      <>
+        <SubHead>วิธีชำระของคำสั่งซื้อหน้าร้านทั้งหมด ({fmtN(ctx.storeOrders)} รายการ ในไฟล์ดิบ)</SubHead>
+        <HBars items={ctx.storePay.map((d) => ({ ...d }))} valueKey="n" fmt={fmtN} color={color} labelW={130}
+          highlight={(d) => d.name === 'เก็บเงินปลายทาง'} tip={(d) => `${d.name}: ${fmtN(d.n)} รายการ (${fmtPct(pct(d.n, ctx.storeOrders))})`} />
+        <Typography variant="body2" sx={{ color: 'text.secondary', mt: 1 }}>
+          แท่งทึบคือแถวขยะ: {fmtPct(pct(T.cells, ctx.storeOrders))} ของรายการหน้าร้าน ส่วนช่องทางออนไลน์ใช้ “เก็บเงินปลายทาง” ได้ตามปกติ ({fmtN(ctx.onlineCod)} จาก {fmtN(ctx.onlineOrders)} รายการ)
+          · ยอดเงินในแถวที่ตัดทิ้งรวม {fmtB(ctx.allRevenue)} (เฉพาะที่สถานะสำเร็จ {fmtB(T.revenue)})
+        </Typography>
+      </>
+    );
+  } else if (t === 'A') {
+    why = <>ถ้าอายุลูกค้ากระจายแบบปกติ จำนวนคนอายุ 15 ควรใกล้เคียงอายุ 16–18 (เฉลี่ย ~{ctx.expected} คน) แต่มีถึง {ctx.customers15} คน เกินมา ~{ctx.excess} คน แสดงว่าระบบปัดอายุที่น้อยกว่า 15 ขึ้นเป็น 15 (หรือใช้ 15 เป็นค่าเริ่มต้นเมื่อไม่กรอก) เราบอกไม่ได้ว่าใครอายุ 15 จริง ทั้ง {fmtN(T.cells)} ช่อง ({ctx.customers15} คน) จึงเป็นค่าที่น่าสงสัย</>;
+    extra = (
+      <>
+        <SubHead>จำนวนลูกค้าตามอายุ 15–30 ปี (นับคนไม่ซ้ำ)</SubHead>
+        <Columns items={ctx.ageHist} valueKey="n" fmt={(v) => fmtN(v) + ' คน'} color={pal[0]} colorOf={(d) => d.name === '15' ? color : 'var(--axis)'} height={170}
+          refLine={{ value: ctx.expected, label: `ค่าที่ควรเป็น ≈ ${ctx.expected}` }} tip={(d) => `อายุ ${d.name}: ${fmtN(d.n)} คน`} />
+        <Typography variant="body2" sx={{ color: 'text.secondary', mt: 1 }}>
+          ข้อสังเกตเพิ่ม: ลูกค้าอายุ 15 ปีจ่ายด้วยบัตรเครดิต {fmtN(ctx.credit15)} รายการ ทั้งที่ในไทยคนอายุต่ำกว่า 20 ปีถือบัตรเครดิตหลักไม่ได้ จึงยิ่งชี้ว่าอายุ 15 ไม่ใช่อายุจริงทั้งหมด
+        </Typography>
+      </>
+    );
+  } else if (t === 'G') {
+    why = <>ช่องเพศถูกกรอกว่า “ไม่ระบุ” {fmtN(T.cells)} ช่อง จากลูกค้า {ctx.customers} คน ลูกค้าคนเดิมเป็น “ไม่ระบุ” ทุกคำสั่งซื้อ ไม่ใช่สลับไปมา เป็นข้อมูลที่ขาดหาย ไม่ใช่ข้อมูลผิด จึงเก็บไว้แล้วแยกเป็นกลุ่มของตัวเอง ไม่เดาเพศแทน</>;
+    extra = (
+      <Grid container spacing={2}>
+        <Grid item xs={12} md={6}>
+          <SubHead>เพศของลูกค้าทั้งหมด ({fmtN(ctx.allCustomers)} คน)</SubHead>
+          <SegBar items={ctx.genderCustomers} valueKey="n" pal={pal} fmtV={(v) => fmtN(v) + ' คน'} />
+        </Grid>
+        <Grid item xs={12} md={6}>
+          <SubHead>ช่วงอายุของลูกค้าที่ไม่ระบุเพศ ({ctx.customers} คน)</SubHead>
+          <HBars items={ctx.ageOfUnknown} valueKey="n" fmt={(v) => fmtN(v) + ' คน'} color={color} labelW={60} />
+        </Grid>
+      </Grid>
+    );
+  } else if (t === 'R') {
+    why = <>คะแนนรีวิวว่างทั้งหมด {fmtN(ctx.blankAll)} ช่อง แต่ {fmtN(ctx.blankCancelled)} ช่องเป็นคำสั่งซื้อที่ยกเลิก (ยกเลิกทั้งหมด {fmtN(ctx.cancelledAll)} รายการ ว่าง 100%) ซึ่งไม่ได้รับของ จึงไม่มีรีวิวเป็นเรื่องปกติ ที่เหลือ {fmtN(T.cells)} ช่องเป็นคำสั่งซื้อที่ได้รับของแล้วแต่ไม่มีคะแนน ถือว่าข้อมูลหาย ไม่นำมาเฉลี่ย และไม่นับเป็น 0 คะแนน (ถ้านับเป็น 0 ค่าเฉลี่ยจะต่ำผิดจริง)</>;
+    extra = (
+      <Grid container spacing={2}>
+        <Grid item xs={12} md={6}>
+          <SubHead>อัตรารีวิวว่างตามสถานะ</SubHead>
+          <DataTable columns={[{ key: 'name', label: 'สถานะ' }, { key: 'blank', label: 'ว่าง', num: true, fmt: fmtN }, { key: 'total', label: 'ทั้งหมด', num: true, fmt: fmtN },
+            { key: 'rate', label: 'อัตราว่าง', num: true, fmt: (v, r) => fmtPct(pct(r.blank, r.total)) }]} rows={ctx.rateByStatus} />
+        </Grid>
+        <Grid item xs={12} md={6}>
+          <SubHead>อัตรารีวิวว่างตามช่องทาง (ไม่รวมยกเลิก)</SubHead>
+          <DataTable columns={[{ key: 'name', label: 'ช่องทาง' }, { key: 'blank', label: 'ว่าง', num: true, fmt: fmtN }, { key: 'total', label: 'ทั้งหมด', num: true, fmt: fmtN },
+            { key: 'rate', label: 'อัตราว่าง', num: true, fmt: (v, r) => fmtPct(pct(r.blank, r.total)) }]} rows={ctx.rateByChannel} />
+        </Grid>
+      </Grid>
+    );
+  }
+
+  return (
+    <Box>
+      <Alert severity={t === 'P' ? 'error' : 'warning'} icon={<Icon>{TYPE_ICON[t]}</Icon>} sx={{ mb: 2 }}>
+        <b>{T.title}</b> · คอลัมน์ “{T.col}” · {T.kind} → {T.action}<br />{why}
+      </Alert>
+      <Grid container spacing={1.5}>
+        <Grid item xs={6} sm={4} md={2}><MiniStat label="จำนวนช่อง" value={fmtN(T.cells)} sub={`${fmtPct(T.pctRows, 2)} ของแถว`} /></Grid>
+        <Grid item xs={6} sm={4} md={2}><MiniStat label="ลูกค้าที่เกี่ยวข้อง" value={fmtN(T.customers)} sub="คน" /></Grid>
+        <Grid item xs={6} sm={4} md={2}><MiniStat label="ปี 2024" value={fmtN(T.y2024)} sub="ช่อง" /></Grid>
+        <Grid item xs={6} sm={4} md={2}><MiniStat label="ปี 2025" value={fmtN(T.y2025)} sub="ช่อง" /></Grid>
+        <Grid item xs={6} sm={4} md={2}><MiniStat label="ยอดเงินที่เกี่ยวข้อง" value={fmtCompactB(T.revenue)} sub="เฉพาะสถานะสำเร็จ" /></Grid>
+        <Grid item xs={6} sm={4} md={2}><MiniStat label="เฉลี่ยต่อเดือน" value={nf2.format(T.cells / 24)} sub="ช่อง/เดือน" /></Grid>
+      </Grid>
+      {extra}
+      <SubHead>จำนวนช่องที่พบรายเดือน (ม.ค. 2024 – ธ.ค. 2025)</SubHead>
+      <Columns items={monthItems} valueKey="n" fmt={fmtN} color={color} height={140} labelEvery={3} tip={(d) => `${d.full}: ${fmtN(d.n)} ช่อง`} />
+      <Grid container spacing={2} sx={{ mt: 0 }}>
+        <Grid item xs={12} md={6}>
+          <SubHead>ตามช่องทางการขาย</SubHead>
+          <HBars items={T.channel} valueKey="n" fmt={fmtN} color={color} labelW={110} tip={tipN} />
+          <SubHead>ตามสถานะคำสั่งซื้อ</SubHead>
+          <HBars items={T.status} valueKey="n" fmt={fmtN} color={color} labelW={110} tip={tipN} />
+          <SubHead>ตามภาค</SubHead>
+          <HBars items={T.region} valueKey="n" fmt={fmtN} color={color} labelW={160} tip={tipN} />
+        </Grid>
+        <Grid item xs={12} md={6}>
+          <SubHead>ตามหมวดสินค้า</SubHead>
+          <HBars items={T.category} valueKey="n" fmt={fmtN} color={color} labelW={160} tip={tipN} />
+          <SubHead>10 จังหวัดที่พบมากที่สุด</SubHead>
+          <HBars items={T.province} valueKey="n" fmt={fmtN} color={color} labelW={130} tip={tipN} />
+        </Grid>
+      </Grid>
+      <SubHead>10 ลูกค้าที่มีช่องผิดปกติประเภทนี้มากที่สุด</SubHead>
+      <Stack direction="row" flexWrap="wrap" useFlexGap spacing={1}>
+        {T.topCustomers.map((c) => <Chip key={c.name} size="small" variant="outlined" label={`${c.name} · ${fmtN(c.n)} ช่อง`} />)}
+      </Stack>
+    </Box>
+  );
+}
+
+function CellList({ pal }) {
+  const [type, setType] = useState('all');
+  const [q, setQ] = useState('');
+  const [page, setPage] = useState(0);
+  const [rpp, setRpp] = useState(25);
+  const f = J.fields;
+  const idx = Object.fromEntries(f.map((k, i) => [k, i]));
+  const rows = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    return J.records.filter((r) => (type === 'all' || r[0] === type) && (!s || r.slice(1, 12).some((v) => String(v).toLowerCase().includes(s))));
+  }, [type, q]);
+  useEffect(() => setPage(0), [type, q]);
+  const download = () => {
+    const head = ['ประเภทขยะ', 'คอลัมน์ที่ผิดปกติ', 'รหัสคำสั่งซื้อ', 'วันที่', 'รหัสลูกค้า', 'เพศ', 'อายุ', 'จังหวัด', 'ช่องทาง', 'สินค้า', 'วิธีชำระเงิน', 'สถานะ', 'คะแนนรีวิว', 'ยอดรวมสุทธิ', 'จำนวนจุดในแถวนี้'];
+    const esc = (v) => /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v);
+    const lines = [head.join(',')].concat(rows.map((r) => [J.types[r[0]].title, J.types[r[0]].col, ...r.slice(1)].map(esc).join(',')));
+    const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `junk_cells_${type}.csv`; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+  const cell = (r, key) => {
+    const bad = TYPE_FIELD[r[0]] === key;
+    let v = r[idx[key]];
+    if (key === 'review' && v === '') v = '— ว่าง —';
+    if (key === 'total') v = fmtB(v);
+    return (
+      <TableCell key={key} align={key === 'total' || key === 'age' ? 'right' : 'left'} className={key === 'total' || key === 'age' ? 'num' : ''}
+        sx={{ whiteSpace: 'nowrap', ...(bad ? { bgcolor: r[0] === 'P' ? 'rgba(208,59,59,0.16)' : 'rgba(250,178,25,0.22)', fontWeight: 700 } : {}) }}>{v}</TableCell>
+    );
+  };
+  const shown = rows.slice(page * rpp, page * rpp + rpp);
+  return (
+    <Card variant="outlined" sx={{ borderRadius: 3 }}>
+      <CardContent sx={{ p: { xs: 2, sm: 2.5 } }}>
+        <Typography variant="subtitle1" component="h3" sx={{ fontWeight: 600 }}>รายการช่องขยะทั้งหมด {fmtN(J.junkCells)} ช่อง</Typography>
+        <Typography variant="body2" sx={{ color: 'text.secondary', mb: 1.5 }}>ช่องที่ผิดปกติถูกไฮไลต์ไว้ (แดง = ผิด/ตัดออก, เหลือง = หาย/น่าสงสัย) · ค้นหาด้วยรหัสคำสั่งซื้อ รหัสลูกค้า จังหวัด สินค้า ฯลฯ</Typography>
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} alignItems={{ md: 'center' }} sx={{ mb: 1.5 }}>
+          <ToggleButtonGroup size="small" exclusive value={type} onChange={(e, v) => v && setType(v)} sx={{ flexWrap: 'wrap' }}>
+            <ToggleButton value="all">ทั้งหมด ({fmtN(J.junkCells)})</ToggleButton>
+            {TYPE_KEYS.map((k) => <ToggleButton key={k} value={k}>{TYPE_SHORT[k]} ({fmtN(J.types[k].cells)})</ToggleButton>)}
+          </ToggleButtonGroup>
+          <TextField size="small" placeholder="ค้นหา…" value={q} onChange={(e) => setQ(e.target.value)} sx={{ flex: 1, minWidth: 160 }}
+            InputProps={{ startAdornment: <InputAdornment position="start"><Icon fontSize="small">search</Icon></InputAdornment> }} />
+          <Button variant="outlined" size="small" onClick={download} startIcon={<Icon>download</Icon>} className="no-print" sx={{ flexShrink: 0 }}>CSV ({fmtN(rows.length)})</Button>
+        </Stack>
+        <TableContainer sx={{ maxHeight: 560 }}>
+          <Table size="small" stickyHeader>
+            <TableHead>
+              <TableRow>
+                {['ประเภท', 'รหัสคำสั่งซื้อ', 'วันที่', 'ลูกค้า', 'เพศ', 'อายุ', 'จังหวัด', 'ช่องทาง', 'สินค้า', 'วิธีชำระ', 'สถานะ', 'รีวิว', 'ยอดสุทธิ', 'จุดในแถว'].map((h, i) => (
+                  <TableCell key={h} align={[5, 12, 13].includes(i) ? 'right' : 'left'} sx={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</TableCell>
+                ))}
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {shown.map((r, i) => (
+                <TableRow key={r[0] + r[1]} hover>
+                  <TableCell><Chip size="small" label={TYPE_SHORT[r[0]]} sx={{ bgcolor: pal[TYPE_KEYS.indexOf(r[0])], color: INK_ON(pal[TYPE_KEYS.indexOf(r[0])]), fontWeight: 600 }} /></TableCell>
+                  {['id', 'date', 'customer', 'gender', 'age', 'province', 'channel', 'product', 'pay', 'status', 'review', 'total'].map((k) => cell(r, k))}
+                  <TableCell align="right" className="num">{r[13] > 1 ? <Chip size="small" color="warning" label={r[13]} /> : r[13]}</TableCell>
+                </TableRow>
+              ))}
+              {!shown.length && <TableRow><TableCell colSpan={14} align="center" sx={{ py: 4, color: 'text.secondary' }}>ไม่พบรายการ</TableCell></TableRow>}
+            </TableBody>
+          </Table>
+        </TableContainer>
+        <TablePagination component="div" count={rows.length} page={page} onPageChange={(e, p) => setPage(p)} rowsPerPage={rpp}
+          onRowsPerPageChange={(e) => { setRpp(+e.target.value); setPage(0); }} rowsPerPageOptions={[25, 50, 100, 250]}
+          labelRowsPerPage="แถวต่อหน้า" labelDisplayedRows={({ from, to, count }) => `${fmtN(from)}–${fmtN(to)} จาก ${fmtN(count)}`} />
+      </CardContent>
+    </Card>
+  );
+}
+
+function JunkCellsSection({ pal }) {
+  const [tab, setTab] = useState(() => (location.search.match(/tab=([PGAR])/) || [])[1] || 'P');
+  const T = J.types;
+  const typeRows = TYPE_KEYS.map((k) => ({ key: k, ...T[k] }));
+  const pairLabel = (a, b) => J.pairs[a + b] ?? J.pairs[b + a] ?? 0;
+  return (
+    <Section id="cells" icon="grid_on" title="จุดขยะรายช่อง (Cell-level)"
+      subtitle={`นับเป็น “ช่องข้อมูล” ไม่ใช่แถว: ไฟล์ดิบมี ${fmtN(J.rows)} แถว × ${J.cols} คอลัมน์ = ${fmtN(J.cellsTotal)} ช่อง`}>
+      <Grid container spacing={2}>
+        <Grid item xs={6} md={3}><StatTile icon="grid_on" label="ช่องข้อมูลทั้งหมด" value={fmtN(J.cellsTotal)} sub={`${fmtN(J.rows)} แถว × ${J.cols} คอลัมน์`} /></Grid>
+        <Grid item xs={6} md={3}><StatTile icon="report" label="ช่องที่เป็นขยะ" value={fmtN(J.junkCells)} sub={`${fmtPct(pct(J.junkCells, J.cellsTotal), 2)} ของทุกช่อง`} /></Grid>
+        <Grid item xs={6} md={3}><StatTile icon="category" label="ประเภทของขยะ" value="4 จุด" sub="ใน 4 คอลัมน์" /></Grid>
+        <Grid item xs={6} md={3}><StatTile icon="table_rows" label="แถวที่มีขยะอย่างน้อย 1 ช่อง" value={fmtN(J.rowsTouched)} sub={`${fmtPct(pct(J.rowsTouched, J.rows))} ของแถว · สะอาด ${fmtN(J.perRow['0'])} แถว`} /></Grid>
+
+        <Grid item xs={12}>
+          <Card variant="outlined" sx={{ borderRadius: 3 }}>
+            <CardContent sx={{ p: { xs: 2, sm: 2.5 } }}>
+              <Typography variant="subtitle1" component="h3" sx={{ fontWeight: 600, mb: 1.5 }}>สรุป 4 จุด</Typography>
+              <SegBar items={typeRows.map((d) => ({ name: TYPE_SHORT[d.key], n: d.cells }))} valueKey="n"
+                pal={pal} fmtV={(v) => fmtN(v) + ' ช่อง'} />
+              <TableContainer sx={{ mt: 2 }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      {['#', 'จุดที่เป็นขยะ', 'คอลัมน์', 'ลักษณะ', 'จำนวนช่อง', '% ของแถว', 'ลูกค้า', 'การจัดการ'].map((h, i) => (
+                        <TableCell key={h} align={[4, 5, 6].includes(i) ? 'right' : 'left'} sx={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</TableCell>
+                      ))}
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {typeRows.map((d, i) => (
+                      <TableRow key={d.key} hover>
+                        <TableCell>
+                          <Stack direction="row" spacing={1} alignItems="center"><Box sx={{ width: 10, height: 10, borderRadius: '3px', bgcolor: pal[i] }} /><span>{i + 1}</span></Stack>
+                        </TableCell>
+                        <TableCell>{d.title}</TableCell>
+                        <TableCell>{d.col}</TableCell>
+                        <TableCell><Chip size="small" variant="outlined" color={d.key === 'P' ? 'error' : 'warning'} label={d.kind} /></TableCell>
+                        <TableCell align="right" className="num" sx={{ fontWeight: 600 }}>{fmtN(d.cells)}</TableCell>
+                        <TableCell align="right" className="num">{fmtPct(d.pctRows, 2)}</TableCell>
+                        <TableCell align="right" className="num">{fmtN(d.customers)}</TableCell>
+                        <TableCell>{d.action}</TableCell>
+                      </TableRow>
+                    ))}
+                    <TableRow>
+                      <TableCell /><TableCell sx={{ fontWeight: 700 }}>รวม</TableCell><TableCell /><TableCell />
+                      <TableCell align="right" className="num" sx={{ fontWeight: 700 }}>{fmtN(J.junkCells)}</TableCell>
+                      <TableCell colSpan={3} sx={{ color: 'text.secondary' }}>อยู่ใน {fmtN(J.rowsTouched)} แถว (บางแถวมีมากกว่า 1 จุด)</TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </TableContainer>
+              <Typography variant="body2" sx={{ color: 'text.secondary', mt: 1.5 }}>
+                ไม่นับเป็นขยะ: รีวิวว่างของคำสั่งซื้อที่ยกเลิก {fmtN(T.R.context.blankCancelled)} ช่อง (ปกติ เพราะไม่ได้รับของ) และลูกค้า {Q.topCustomer} ที่ซื้อ {Q.topCustomerOrders} ครั้ง (ข้อมูลสอดคล้องทุกช่อง แค่ผิดปกติทางสถิติ)
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid item xs={12}>
+          <Card variant="outlined" sx={{ borderRadius: 3 }}>
+            <Tabs value={tab} onChange={(e, v) => setTab(v)} variant="scrollable" scrollButtons="auto" sx={{ borderBottom: 1, borderColor: 'divider', px: 1 }}>
+              {TYPE_KEYS.map((k, i) => (
+                <Tab key={k} value={k} label={
+                  <Stack direction="row" spacing={1} alignItems="center"><Box sx={{ width: 10, height: 10, borderRadius: '3px', bgcolor: pal[i] }} /><span>{i + 1}. {TYPE_SHORT[k]} · {fmtN(T[k].cells)}</span></Stack>
+                } sx={{ textTransform: 'none', fontFamily: 'Prompt' }} />
+              ))}
+            </Tabs>
+            <CardContent sx={{ p: { xs: 2, sm: 2.5 } }}>
+              <TypeDetail t={tab} pal={pal} />
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid item xs={12} md={5}>
+          <ChartCard title="จำนวนจุดขยะต่อแถว" note={`จาก ${fmtN(J.rows)} แถวในไฟล์ดิบ`}
+            table={{ columns: [{ key: 'name', label: 'จุดในแถว' }, { key: 'n', label: 'แถว', num: true, fmt: fmtN }], rows: Object.entries(J.perRow).map(([k, v]) => ({ name: k + ' จุด', n: v })) }}>
+            <HBars items={Object.entries(J.perRow).map(([k, v]) => ({ name: k === '0' ? 'ไม่มีขยะ' : `${k} จุด`, n: v }))} valueKey="n" fmt={fmtN} color={pal[0]} labelW={80}
+              tip={(d) => `${d.name}: ${fmtN(d.n)} แถว (${fmtPct(pct(d.n, J.rows))})`} />
+            <SubHead>การเกิดร่วมกันในแถวเดียว</SubHead>
+            <Stack direction="row" flexWrap="wrap" useFlexGap spacing={1}>
+              {J.combos.map((c) => <Chip key={c.name} size="small" variant="outlined" label={`${c.name.split('+').map((k) => TYPE_SHORT[k]).join(' + ')} · ${fmtN(c.n)} แถว`} />)}
+            </Stack>
+          </ChartCard>
+        </Grid>
+        <Grid item xs={12} md={7}>
+          <ChartCard title="ตารางไขว้: แถวที่มี 2 จุดพร้อมกัน" note="ตัวเลขในช่องทแยงคือจำนวนช่องของจุดนั้นทั้งหมด">
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell />
+                    {TYPE_KEYS.map((k) => <TableCell key={k} align="right" sx={{ fontWeight: 600 }}>{TYPE_SHORT[k]}</TableCell>)}
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {TYPE_KEYS.map((a) => (
+                    <TableRow key={a}>
+                      <TableCell sx={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{TYPE_SHORT[a]}</TableCell>
+                      {TYPE_KEYS.map((b) => {
+                        const v = a === b ? T[a].cells : pairLabel(a, b);
+                        return <TableCell key={b} align="right" className="num" sx={{ bgcolor: a === b ? 'action.hover' : null, fontWeight: a === b ? 700 : 400 }}>{fmtN(v)}</TableCell>;
+                      })}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+            <Typography variant="body2" sx={{ color: 'text.secondary', mt: 1.5 }}>
+              คู่ที่พบด้วยกันมากที่สุดคือ อายุ 15 + รีวิวว่าง ({fmtN(J.pairs.AR)} แถว) ซึ่งสอดคล้องกับจำนวนของแต่ละจุดที่มีมาก ไม่ได้บ่งชี้ว่าเกี่ยวข้องกันโดยตรง
+            </Typography>
+          </ChartCard>
+        </Grid>
+
+        <Grid item xs={12}>
+          <ChartCard title={`ความสมบูรณ์ของทั้ง ${J.cols} คอลัมน์`} note="จำนวนช่องว่างและช่องผิดปกติของแต่ละคอลัมน์ในไฟล์ดิบ">
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    {['#', 'คอลัมน์', 'ตัวอย่างค่า', 'ค่าไม่ซ้ำ', 'ช่องว่าง', 'ช่องผิดปกติ', 'ถูกต้อง', ''].map((h, i) => (
+                      <TableCell key={i} align={[3, 4, 5, 6].includes(i) ? 'right' : 'left'} sx={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</TableCell>
+                    ))}
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {J.columns.map((c, i) => {
+                    const okPct = pct(J.rows - c.flagged, J.rows);
+                    return (
+                      <TableRow key={c.name} hover>
+                        <TableCell className="num">{i + 1}</TableCell>
+                        <TableCell sx={{ fontWeight: c.flagged ? 700 : 400, whiteSpace: 'nowrap' }}>{c.name}</TableCell>
+                        <TableCell sx={{ color: 'text.secondary', whiteSpace: 'nowrap' }}>{c.example === '' ? '(ว่าง)' : c.example}</TableCell>
+                        <TableCell align="right" className="num">{fmtN(c.unique)}</TableCell>
+                        <TableCell align="right" className="num">{fmtN(c.blank)}</TableCell>
+                        <TableCell align="right" className="num" sx={{ color: c.flagged ? 'error.main' : 'text.secondary', fontWeight: c.flagged ? 700 : 400 }}>{fmtN(c.flagged)}</TableCell>
+                        <TableCell align="right" className="num">{fmtPct(okPct, okPct === 100 ? 0 : 2)}</TableCell>
+                        <TableCell sx={{ width: { xs: 60, sm: 140 } }}>
+                          <Box sx={{ height: 6, borderRadius: 6, bgcolor: 'var(--track)', overflow: 'hidden' }}>
+                            <Box sx={{ height: '100%', width: `${okPct}%`, bgcolor: c.flagged ? pal[TYPE_KEYS.findIndex((k) => T[k].col === c.name)] : pal[2], borderRadius: 6 }} />
+                          </Box>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </TableContainer>
+            <Typography variant="body2" sx={{ color: 'text.secondary', mt: 1.5 }}>
+              คอลัมน์ “คะแนนรีวิว” มีช่องว่าง {fmtN(T.R.context.blankAll)} ช่อง แต่นับเป็นขยะ {fmtN(T.R.cells)} ช่อง (หักคำสั่งซื้อที่ยกเลิก) · อีก 17 คอลัมน์ถูกต้อง 100%
+            </Typography>
+          </ChartCard>
+        </Grid>
+
+        <Grid item xs={12}>
+          <CellList pal={pal} />
         </Grid>
       </Grid>
     </Section>
@@ -532,12 +903,13 @@ function App() {
           หลังคัดข้อมูลขยะออกเหลือ <b>{fmtN(Q.cleanRows)}</b> คำสั่งซื้อ ตัวเลขยอดขายนับเฉพาะคำสั่งซื้อที่ “สำเร็จ”
         </Typography>
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 2 }} className="no-print">
-          {[['quality', 'การคัดกรองข้อมูล'], ['overview', 'ภาพรวม'], ['products', 'สินค้า'], ['channels', 'ช่องทาง & พื้นที่'], ['customers', 'ลูกค้า'], ['time', 'ช่วงเวลา'], ['service', 'ความพึงพอใจ']].map(([id, l]) => (
+          {[['quality', 'การคัดกรองข้อมูล'], ['cells', 'จุดขยะรายช่อง'], ['overview', 'ภาพรวม'], ['products', 'สินค้า'], ['channels', 'ช่องทาง & พื้นที่'], ['customers', 'ลูกค้า'], ['time', 'ช่วงเวลา'], ['service', 'ความพึงพอใจ']].map(([id, l]) => (
             <Chip key={id} label={l} component="a" href={`#${id}`} clickable variant="outlined" size="small" />
           ))}
         </Stack>
 
         <QualitySection pal={pal} />
+        <JunkCellsSection pal={pal} />
 
         <Section id="overview" icon="dashboard" title={`ภาพรวม ปี ${yearLabel}`}>
           <Grid container spacing={2}>
