@@ -902,6 +902,44 @@ function App() {
           วิเคราะห์จากไฟล์ <b>sales_data.csv</b> ({fmtN(Q.rawRows)} คำสั่งซื้อ · 7 หมวดสินค้า · 33 รายการ · 25 จังหวัด · 4 ช่องทางขาย)
           หลังคัดข้อมูลขยะออกเหลือ <b>{fmtN(Q.cleanRows)}</b> คำสั่งซื้อ ตัวเลขยอดขายนับเฉพาะคำสั่งซื้อที่ “สำเร็จ”
         </Typography>
+        <Paper variant="outlined" sx={{ mt: 3, p: { xs: 2, sm: 3 }, borderRadius: 3, borderWidth: 2, borderColor: 'error.main', bgcolor: mode === 'dark' ? 'rgba(208,59,59,0.10)' : 'rgba(208,59,59,0.05)' }}>
+          <Grid container spacing={2} alignItems="center">
+            <Grid item xs={12} md={4}>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ color: 'error.main', mb: 0.5 }}>
+                <Icon>report</Icon>
+                <Typography sx={{ fontFamily: 'Prompt', fontWeight: 600 }}>ข้อมูลขยะที่พบในไฟล์</Typography>
+              </Stack>
+              <Typography sx={{ fontFamily: 'Prompt', fontWeight: 700, fontSize: { xs: 44, sm: 56 }, lineHeight: 1.1 }}>
+                4 จุด
+              </Typography>
+              <Typography sx={{ fontFamily: 'Prompt', fontWeight: 600, fontSize: { xs: 20, sm: 24 } }} className="num">
+                รวม {fmtN(J.junkCells)} ช่อง
+              </Typography>
+              <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.5 }}>
+                จากทั้งหมด {fmtN(J.cellsTotal)} ช่อง ({fmtPct(pct(J.junkCells, J.cellsTotal), 2)}) · อยู่ใน {fmtN(J.rowsTouched)} แถว
+              </Typography>
+            </Grid>
+            <Grid item xs={12} md={8}>
+              <Grid container spacing={1.5}>
+                {TYPE_KEYS.map((k, i) => (
+                  <Grid item xs={12} sm={6} key={k}>
+                    <Box component="a" href={`?tab=${k}#cells`} sx={{ display: 'flex', gap: 1.5, alignItems: 'center', p: 1.5, borderRadius: 2, bgcolor: 'background.paper', border: '1px solid var(--ring)', textDecoration: 'none', color: 'inherit', height: '100%', '&:hover': { borderColor: 'error.main' } }}>
+                      <Box sx={{ width: 36, height: 36, borderRadius: '50%', bgcolor: pal[i], color: INK_ON(pal[i]), display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Prompt', fontWeight: 700, flexShrink: 0 }}>{i + 1}</Box>
+                      <Box sx={{ minWidth: 0, flex: 1 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.3 }}>{J.types[k].title}</Typography>
+                        <Typography variant="caption" sx={{ color: 'text.secondary' }}>คอลัมน์ “{J.types[k].col}” · {J.types[k].action}</Typography>
+                      </Box>
+                      <Box sx={{ textAlign: 'right', flexShrink: 0 }}>
+                        <Typography sx={{ fontFamily: 'Prompt', fontWeight: 700, fontSize: 20, lineHeight: 1.1 }} className="num">{fmtN(J.types[k].cells)}</Typography>
+                        <Typography variant="caption" sx={{ color: 'text.secondary' }}>ช่อง</Typography>
+                      </Box>
+                    </Box>
+                  </Grid>
+                ))}
+              </Grid>
+            </Grid>
+          </Grid>
+        </Paper>
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 2 }} className="no-print">
           {[['quality', 'การคัดกรองข้อมูล'], ['cells', 'จุดขยะรายช่อง'], ['overview', 'ภาพรวม'], ['products', 'สินค้า'], ['channels', 'ช่องทาง & พื้นที่'], ['customers', 'ลูกค้า'], ['time', 'ช่วงเวลา'], ['service', 'ความพึงพอใจ']].map(([id, l]) => (
             <Chip key={id} label={l} component="a" href={`#${id}`} clickable variant="outlined" size="small" />
